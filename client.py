@@ -40,8 +40,6 @@ async def main():
     client.set_user(CLIENT_USERNAME)
     client.set_password(CLIENT_PASSWORD)
     
-    node = None
-
     async with client:
         print("✅ Connected to KepServer")
         
