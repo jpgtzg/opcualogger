@@ -22,7 +22,6 @@ TAGS = extract_tags(save_to_file=False)
 
 async def main():
     print(f"Connecting to {SERVER_URL}...")
-    input("Press Enter to continue...")
 
     client = Client(url=SERVER_URL)
     client.application_uri = APP_URI
