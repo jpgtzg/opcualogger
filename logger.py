@@ -13,10 +13,23 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 FILE_PREFIX = "log"
 PRINT_INTERVAL = 5  # seconds between live value prints
 FLUSH_INTERVAL = 5  # seconds between automatic flushes
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # ---------------- Internal State ----------------
 buffer = []
 lock = asyncio.Lock()
+
+
+def format_timestamp(ts):
+    """Return a nicely formatted timestamp string."""
+    if ts is None:
+        return None
+    if isinstance(ts, datetime):
+        return ts.strftime(TIMESTAMP_FORMAT)
+    try:
+        return ts.isoformat()
+    except AttributeError:
+        return str(ts)
 
 
 def get_latest_file_index():
@@ -46,12 +59,22 @@ file_index = get_latest_file_index()
 current_file = create_new_file()
 
 # ---------------- CSV Functions ----------------
-async def save_to_csv(tag_name: str, data_value: ua.DataValue):
+async def save_to_csv(tag_name: str, data_value: ua.DataValue, timestamp: str):
     """Append log entry to buffer; flush to CSV if buffer full."""
     global buffer, file_index, current_file
 
     async with lock:
-        buffer.append({"tag": tag_name, "value": data_value.Value.Value, "status_code": data_value.StatusCode.name, "source_timestamp": data_value.SourceTimestamp.strftime("%Y-%m-%d %H:%M:%S"), "server_timestamp": data_value.ServerTimestamp.strftime("%Y-%m-%d %H:%M:%S")})
+        source_ts = format_timestamp(data_value.SourceTimestamp)
+
+        buffer.append(
+            {
+                "tag": tag_name,
+                "value": data_value.Value.Value,
+                "status_code": data_value.StatusCode.name,
+                "source_timestamp": source_ts,
+                "server_timestamp": timestamp,
+            }
+        )
 
         if len(buffer) >= BUFFER_SIZE:
             df = pd.DataFrame(buffer)
@@ -78,20 +101,6 @@ async def periodic_flush(interval=FLUSH_INTERVAL):
         await asyncio.sleep(interval)
         await flush_buffer()
 
-
-# ---------------- Live Printer ----------------
-async def print_values(nodes, values, prefix=""):
-    """Print tags and values in a readable format."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print("================================================")
-    print(f"Timestamp: {timestamp}")
-
-    # Limit rows printed to first 10 for readability
-    for node, value in list(zip(nodes, values))[:10]:
-        print(f"{node.nodeid.to_string().removeprefix(prefix)} | Value: {value}")
-
-    if len(values) > 10:
-        print(f"... and {len(values)-10} more tags.")
 
 
 # ---------------- Shutdown Handler ----------------
