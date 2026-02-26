@@ -17,7 +17,7 @@ APPLICATION_NAME = os.getenv("APPLICATION_NAME")
 CERT_PATH = "certs/client_cert.pem"
 KEY_PATH  = "certs/client_key.pem"
 
-TAGS = extract_tags(save=False)
+TAGS = extract_tags(save_to_file=False)
 
 async def main():
 

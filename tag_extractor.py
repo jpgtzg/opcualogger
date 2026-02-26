@@ -16,7 +16,7 @@ PREFIX = f"ns=2;s={os.getenv("PREFIX")}."
 
 EXCLUDE_TAGS = ['_Write', '_WRITE']
 
-def extract_tags(save : bool = False) -> dict:
+def extract_tags(save_to_file : bool = False) -> dict:
     print(f"Reading tags from {FILENAME}...")
 
     df = pd.read_csv(FILENAME, sep=";")
@@ -26,10 +26,10 @@ def extract_tags(save : bool = False) -> dict:
 
     tags_json = [tag for tag in tags_json if not any(exclude in tag for exclude in EXCLUDE_TAGS)]
 
-    if save:
+    if save_to_file:
         with open("tags.json", "w") as f:
             json.dump(tags_json, f)
         print(f"Tags written to tags.json")
-    else:
-        return tags_json
-
+    
+    print(f"Tags extracted successfully! {len(tags_json)} tags found")
+    return tags_json
