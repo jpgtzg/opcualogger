@@ -1,10 +1,11 @@
-from asyncua.common.node import Node
 from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic256Sha256
+from logger import save_to_csv, flush_buffer
 from dotenv import load_dotenv
-from tag_extractor import extract_tags
+from tag_extractor import extract_tags, PREFIX
 import os
 import asyncio
+import time
 
 load_dotenv()
 
@@ -47,18 +48,28 @@ async def main():
         server_time = client.get_node("ns=0;i=2258")
         print(await server_time.read_value())
 
-        while True: 
-            print("================================================")
+        try:
+            while True: 
+                print("================================================")
 
-            nodes = [client.get_node(tag) for tag in TAGS]
-            values = await client.read_values(nodes)
+                nodes = [client.get_node(tag) for tag in TAGS]
+                values = await client.read_values(nodes)
+                timestamp = time.time()
 
-            for node, value in zip(nodes, values):
-                print(f"Node: {node.nodeid.to_string()} - Value: {value}")
+                await asyncio.gather(*[
+                    save_to_csv(node.nodeid.to_string().removeprefix(PREFIX), value, timestamp)
+                    for node, value in zip(nodes, values)
+                ])
 
-            await asyncio.sleep(5)
+                await asyncio.sleep(5)
+        
+        except KeyboardInterrupt:
+            print("Stopping logger...")
 
-    # Close connection
+        finally:
+            await flush_buffer()
+            print("✅ Buffer flushed, disconnected.")
+
     await client.disconnect()
     print("✅ Disconnected from KepServer")
             
