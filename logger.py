@@ -1,6 +1,7 @@
 import pandas as pd
 import asyncio
 from pathlib import Path
+from asyncua import ua
 from datetime import datetime
 import re
 import signal
@@ -36,7 +37,7 @@ def create_new_file():
     global file_index
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_name = OUTPUT_DIR / f"{FILE_PREFIX}_{file_index}_{timestamp}.csv"
-    pd.DataFrame(columns=["tag", "value", "timestamp"]).to_csv(file_name, index=False)
+    pd.DataFrame(columns=["tag", "value", "status_code", "source_timestamp", "server_timestamp"]).to_csv(file_name, index=False)
     return file_name
 
 
@@ -45,12 +46,12 @@ file_index = get_latest_file_index()
 current_file = create_new_file()
 
 # ---------------- CSV Functions ----------------
-async def save_to_csv(tag_name: str, value: any, timestamp: float):
+async def save_to_csv(tag_name: str, data_value: ua.DataValue):
     """Append log entry to buffer; flush to CSV if buffer full."""
     global buffer, file_index, current_file
 
     async with lock:
-        buffer.append({"tag": tag_name, "value": value, "timestamp": timestamp})
+        buffer.append({"tag": tag_name, "value": data_value.Value.Value, "status_code": data_value.StatusCode.name, "source_timestamp": data_value.SourceTimestamp.strftime("%Y-%m-%d %H:%M:%S"), "server_timestamp": data_value.ServerTimestamp.strftime("%Y-%m-%d %H:%M:%S")})
 
         if len(buffer) >= BUFFER_SIZE:
             df = pd.DataFrame(buffer)

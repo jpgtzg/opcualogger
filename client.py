@@ -3,7 +3,6 @@ from asyncua.crypto.security_policies import SecurityPolicyBasic256Sha256
 from logger import save_to_csv, flush_buffer, periodic_flush, print_values
 from dotenv import load_dotenv
 from tag_extractor import extract_tags, PREFIX
-import datetime
 import os
 import asyncio
 
@@ -49,11 +48,10 @@ async def main():
                 print("================================================")
 
                 nodes = [client.get_node(tag) for tag in TAGS]
-                values = await client.read_values(nodes)
-                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                values = await client.read_attributes(nodes, ua.AttributeIds.Value)
 
                 await asyncio.gather(*[
-                    save_to_csv(node.nodeid.to_string().removeprefix(PREFIX), value, timestamp)
+                    save_to_csv(node.nodeid.to_string().removeprefix(PREFIX), value)
                     for node, value in zip(nodes, values)
                 ])
 
