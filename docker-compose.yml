@@ -16,6 +16,7 @@ services:
     volumes:
       - opcualogger-certs:/app/certs
       - ./TagList.csv:/app/TagList.csv:ro
+      - ./logs:/app/logs
 volumes:
   opcualogger-certs:
 
