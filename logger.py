@@ -7,7 +7,7 @@ import re
 import signal
 
 # ---------------- Configuration ----------------
-BUFFER_SIZE = 20_000  # number of rows to hold before writing
+ROW_LIMIT = 20_000  # number of rows to hold before writing
 OUTPUT_DIR = Path("logs")  # folder to store CSVs
 OUTPUT_DIR.mkdir(exist_ok=True)
 FILE_PREFIX = "log"
@@ -18,6 +18,7 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 # ---------------- Internal State ----------------
 buffer = []
 lock = asyncio.Lock()
+row_count = 0
 
 
 def format_timestamp(ts):
@@ -61,7 +62,7 @@ current_file = create_new_file()
 # ---------------- CSV Functions ----------------
 async def save_to_csv(tag_name: str, data_value: ua.DataValue, timestamp: str):
     """Append log entry to buffer; flush to CSV if buffer full."""
-    global buffer, file_index, current_file
+    global buffer, file_index, current_file, row_count
 
     async with lock:
         source_ts = format_timestamp(data_value.SourceTimestamp)
@@ -75,8 +76,10 @@ async def save_to_csv(tag_name: str, data_value: ua.DataValue, timestamp: str):
                 "server_timestamp": timestamp,
             }
         )
+        row_count += 1
 
-        if len(buffer) >= BUFFER_SIZE:
+        if row_count >= ROW_LIMIT:
+            row_count = 0
             df = pd.DataFrame(buffer)
             df.to_csv(current_file, mode="a", header=False, index=False)
             buffer.clear()
