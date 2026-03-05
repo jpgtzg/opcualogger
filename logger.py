@@ -1,25 +1,21 @@
-import pandas as pd
-import asyncio
 from pathlib import Path
 from asyncua import ua
-from datetime import datetime
-import re
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
 import signal
+import sqlite3
+import os
 
+load_dotenv()
 # ---------------- Configuration ----------------
-ROW_LIMIT = 20_000  # number of rows to hold before writing
-OUTPUT_DIR = Path("logs")  # folder to store CSVs
+OUTPUT_DIR = Path("logs") 
+
 OUTPUT_DIR.mkdir(exist_ok=True)
-FILE_PREFIX = "log"
-PRINT_INTERVAL = 5  # seconds between live value prints
-FLUSH_INTERVAL = 5  # seconds between automatic flushes
-TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+DB_PATH = OUTPUT_DIR / os.getenv("DB_NAME")
+RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS"))
+CLEANUP_INTERVAL = int(os.getenv("LOG_CLEANUP_INTERVAL"))
 
-# ---------------- Internal State ----------------
-buffer = []
-lock = asyncio.Lock()
-row_count = 0
-
+TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 def format_timestamp(ts):
     """Return a nicely formatted timestamp string."""
@@ -33,87 +29,109 @@ def format_timestamp(ts):
         return str(ts)
 
 
-def get_latest_file_index():
-    """Return the next file_index based on existing files."""
-    existing_files = list(OUTPUT_DIR.glob(f"{FILE_PREFIX}_*.csv"))
-    indices = []
-
-    for f in existing_files:
-        match = re.search(rf"{FILE_PREFIX}_(\d+)\.csv", f.name)
-        if match:
-            indices.append(int(match.group(1)))
-
-    return max(indices) + 1 if indices else 0
-
-
-def create_new_file():
-    """Create a new CSV file with header and return path."""
-    global file_index
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_name = OUTPUT_DIR / f"{FILE_PREFIX}_{file_index}_{timestamp}.csv"
-    pd.DataFrame(columns=["tag", "value", "status_code", "source_timestamp", "server_timestamp"]).to_csv(file_name, index=False)
-    return file_name
-
-
-# Initialize file
-file_index = get_latest_file_index()
-current_file = create_new_file()
-
-# ---------------- CSV Functions ----------------
-async def save_to_csv(tag_name: str, data_value: ua.DataValue, timestamp: str):
-    """Append log entry to buffer; flush to CSV if buffer full."""
-    global buffer, file_index, current_file, row_count
-
-    async with lock:
-        source_ts = format_timestamp(data_value.SourceTimestamp)
-
-        buffer.append(
-            {
-                "tag": tag_name,
-                "value": data_value.Value.Value,
-                "status_code": data_value.StatusCode.name,
-                "source_timestamp": source_ts,
-                "server_timestamp": timestamp,
-            }
+def _init_db():
+    """Create SQLite database and logs table if needed."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS Tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tag TEXT NOT NULL,
+            value TEXT,
+            status_code TEXT,
+            source_timestamp TEXT,
+            server_timestamp TEXT
         )
-        row_count += 1
-
-        if row_count >= ROW_LIMIT:
-            row_count = 0
-            df = pd.DataFrame(buffer)
-            df.to_csv(current_file, mode="a", header=False, index=False)
-            buffer.clear()
-
-            file_index += 1
-            current_file = create_new_file()
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_logs_server_timestamp ON logs(server_timestamp)"
+    )
+    conn.commit()
+    return conn
 
 
-async def flush_buffer():
-    """Flush remaining rows in buffer to disk."""
-    global buffer, current_file
-    async with lock:
-        if buffer:
-            df = pd.DataFrame(buffer)
-            df.to_csv(current_file, mode="a", header=False, index=False)
-            buffer.clear()
+conn = _init_db()
 
 
-async def periodic_flush(interval=FLUSH_INTERVAL):
-    """Periodically flush buffer to disk."""
+def save_to_db(tag_name: str, data_value: ua.DataValue, timestamp: str):
+    """Insert a single log entry into SQLite."""
+    source_ts = format_timestamp(data_value.SourceTimestamp)
+    with conn:
+        conn.execute(
+            """
+            INSERT INTO logs (tag, value, status_code, source_timestamp, server_timestamp)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                tag_name,
+                data_value.Value.Value,
+                data_value.StatusCode.name,
+                source_ts,
+                timestamp,
+            ),
+        )
+
+
+def save_many_to_db(tag_values, timestamp: str):
+    """Insert many log entries into SQLite within a single transaction.
+
+    tag_values is an iterable of (tag_name, data_value) pairs.
+    """
+    rows = []
+    for tag_name, data_value in tag_values:
+        source_ts = format_timestamp(data_value.SourceTimestamp)
+        rows.append(
+            (
+                tag_name,
+                data_value.Value.Value,
+                data_value.StatusCode.name,
+                source_ts,
+                timestamp,
+            )
+        )
+
+    if not rows:
+        return
+
+    with conn:
+        conn.executemany(
+            """
+            INSERT INTO logs (tag, value, status_code, source_timestamp, server_timestamp)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+
+
+def delete_older_than_retention():
+    """Delete log rows older than RETENTION_DAYS (based on server_timestamp)."""
+    cutoff = (datetime.now() - timedelta(days=RETENTION_DAYS)).strftime(TIMESTAMP_FORMAT)
+    with conn:
+        cursor = conn.execute(
+            "DELETE FROM logs WHERE server_timestamp < ?", (cutoff,)
+        )
+        return cursor.rowcount
+
+
+async def periodic_cleanup(interval=CLEANUP_INTERVAL):
+    """Periodically delete log entries older than RETENTION_DAYS."""
+    import asyncio
+
     while True:
         await asyncio.sleep(interval)
-        await flush_buffer()
-
+        deleted = delete_older_than_retention()
+        if deleted:
+            print(f"Retention cleanup: removed {deleted} rows older than {RETENTION_DAYS} days.")
 
 
 # ---------------- Shutdown Handler ----------------
 def setup_exit_handler(loop):
-    """Flush buffer on application exit."""
+    """Stop the event loop on SIGINT/SIGTERM."""
+
     def exit_gracefully(*args):
-        print("Exiting... flushing buffer.")
-        loop.create_task(flush_buffer())
-        # Give a small delay to flush buffer
-        loop.call_later(0.5, loop.stop)
+        print("Exiting...")
+        loop.stop()
 
     signal.signal(signal.SIGINT, exit_gracefully)
     signal.signal(signal.SIGTERM, exit_gracefully)

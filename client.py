@@ -1,6 +1,6 @@
 from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic256Sha256
-from logger import save_to_csv, flush_buffer, periodic_flush
+from logger import save_many_to_db, periodic_cleanup
 from dotenv import load_dotenv
 from tag_extractor import extract_tags, PREFIX
 import os
@@ -42,7 +42,7 @@ async def main():
         server_time = client.get_node("ns=0;i=2258")
         print(await server_time.read_value())
 
-        asyncio.create_task(periodic_flush())
+        asyncio.create_task(periodic_cleanup())
 
         try:
             while True:
@@ -51,10 +51,11 @@ async def main():
                 nodes = [client.get_node(tag) for tag in TAGS]
                 values = await client.read_attributes(nodes, ua.AttributeIds.Value)
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                await asyncio.gather(*[
-                    save_to_csv(node.nodeid.to_string().removeprefix(PREFIX), value, timestamp)
+                tag_values = [
+                    (node.nodeid.to_string().removeprefix(PREFIX), value)
                     for node, value in zip(nodes, values)
-                ])
+                ]
+                save_many_to_db(tag_values, timestamp)
 
                 await asyncio.sleep(1)
 
@@ -62,8 +63,7 @@ async def main():
             print("Stopping logger...")
 
         finally:
-            await flush_buffer()
-            print("Buffer flushed, disconnected.") 
+            print("Disconnected.") 
 
 if __name__ == "__main__":
     asyncio.run(main())
