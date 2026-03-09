@@ -1,6 +1,6 @@
 from asyncua import Client, ua
 from asyncua.crypto.security_policies import SecurityPolicyBasic256Sha256
-from logger import save_many_to_db, periodic_cleanup
+from src.logger import save_many_to_db, periodic_cleanup
 from dotenv import load_dotenv
 from tag_extractor import extract_tags, PREFIX
 import os

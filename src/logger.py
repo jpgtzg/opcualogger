@@ -8,10 +8,11 @@ import os
 
 load_dotenv()
 # ---------------- Configuration ----------------
-OUTPUT_DIR = Path("logs") 
+# Base directory for logs (can be overridden with LOG_DIR env var)
+LOG_DIR = Path(os.getenv("LOG_DIR", "/app/logs"))
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_DIR.mkdir(exist_ok=True)
-DB_PATH = OUTPUT_DIR / os.getenv("DB_NAME")
+DB_PATH = LOG_DIR / os.getenv("DB_NAME")
 RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS"))
 CLEANUP_INTERVAL = int(os.getenv("LOG_CLEANUP_INTERVAL"))
 
@@ -31,10 +32,17 @@ def format_timestamp(ts):
 
 def _init_db():
     """Create SQLite database and logs table if needed."""
-    conn = sqlite3.connect(DB_PATH)
+    print(f"Initializing database at {DB_PATH} (cwd={Path.cwd()})...")
+    try:
+        conn = sqlite3.connect(DB_PATH)
+    except sqlite3.OperationalError as e:
+        print(f"SQLite OperationalError while opening database at {DB_PATH}: {e}")
+        print("Check that the directory exists and that the container/user has write permissions (including SELinux and volume options).")
+        raise
+
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS Tags (
+        CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tag TEXT NOT NULL,
             value TEXT,
