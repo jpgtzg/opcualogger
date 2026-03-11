@@ -34,15 +34,17 @@ def _init_db():
     """Create SQLite database and logs table if needed."""
     print(f"Initializing database at {DB_PATH} (cwd={Path.cwd()})...")
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(DB_PATH, timeout=30)
     except sqlite3.OperationalError as e:
         print(f"SQLite OperationalError while opening database at {DB_PATH}: {e}")
         print("Check that the directory exists and that the container/user has write permissions (including SELinux and volume options).")
         raise
 
+    conn.execute("PRAGMA journal_mode=WAL;")
+
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS logs (
+        CREATE TABLE IF NOT EXISTS Tags (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tag TEXT NOT NULL,
             value TEXT,
@@ -53,7 +55,7 @@ def _init_db():
         """
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_logs_server_timestamp ON logs(server_timestamp)"
+        "CREATE INDEX IF NOT EXISTS idx_logs_server_timestamp ON Tags(server_timestamp)"
     )
     conn.commit()
     return conn
@@ -68,7 +70,7 @@ def save_to_db(tag_name: str, data_value: ua.DataValue, timestamp: str):
     with conn:
         conn.execute(
             """
-            INSERT INTO logs (tag, value, status_code, source_timestamp, server_timestamp)
+            INSERT INTO Tags (tag, value, status_code, source_timestamp, server_timestamp)
             VALUES (?, ?, ?, ?, ?)
             """,
             (
@@ -105,7 +107,7 @@ def save_many_to_db(tag_values, timestamp: str):
     with conn:
         conn.executemany(
             """
-            INSERT INTO logs (tag, value, status_code, source_timestamp, server_timestamp)
+            INSERT INTO Tags (tag, value, status_code, source_timestamp, server_timestamp)
             VALUES (?, ?, ?, ?, ?)
             """,
             rows,
@@ -117,7 +119,7 @@ def delete_older_than_retention():
     cutoff = (datetime.now() - timedelta(days=RETENTION_DAYS)).strftime(TIMESTAMP_FORMAT)
     with conn:
         cursor = conn.execute(
-            "DELETE FROM logs WHERE server_timestamp < ?", (cutoff,)
+            "DELETE FROM Tags WHERE server_timestamp < ?", (cutoff,)
         )
         return cursor.rowcount
 
