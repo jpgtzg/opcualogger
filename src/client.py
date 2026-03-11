@@ -46,8 +46,6 @@ async def main():
 
         try:
             while True:
-                print("================================================")
-
                 nodes = [client.get_node(tag) for tag in TAGS]
                 values = await client.read_attributes(nodes, ua.AttributeIds.Value)
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -55,6 +53,8 @@ async def main():
                     (node.nodeid.to_string().removeprefix(PREFIX), value)
                     for node, value in zip(nodes, values)
                 ]
+
+                print(f"Logged {len(tag_values)} values for {len(nodes)} nodes at {datetime.now.strftime("%Y-%m-%d %H:%M:%S")}")
                 save_many_to_db(tag_values, timestamp)
 
                 await asyncio.sleep(1)
