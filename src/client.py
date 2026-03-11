@@ -54,7 +54,7 @@ async def main():
                     for node, value in zip(nodes, values)
                 ]
 
-                print(f"Logged {len(tag_values)} values for {len(nodes)} nodes at {datetime.now.strftime("%Y-%m-%d %H:%M:%S")}")
+                print( f"Logged {len(tag_values)} values for {len(nodes)} nodes at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 save_many_to_db(tag_values, timestamp)
 
                 await asyncio.sleep(1)
